@@ -1,0 +1,7 @@
+streamlit
+requests
+crewai
+litellm
+python-dotenv
+pysqlite3-binary
+google-generativeai
