@@ -1,7 +1,4 @@
-import sys
-__import__('pysqlite3')
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-
+import sqlite3
 import streamlit as st
 import requests
 import json
@@ -12,6 +9,8 @@ import pprint
 from crewai import Agent, Task, Crew, Process
 from crewai import LLM
 from dotenv import load_dotenv
+from gradio_client import Client, handle_file
+
 
 import litellm
 
@@ -37,14 +36,12 @@ if not st.session_state.messages:
 
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    REPLICATE_API_TOKEN = st.secrets["REPLICATE_API_TOKEN"]
 except (FileNotFoundError, KeyError):
     st.warning("Secrets file not found. Falling back to environment variables.")
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-    REPLICATE_API_TOKEN = os.environ.get("REAPI_TOKEN")
 
-if not GEMINI_API_KEY or not REPLICATE_API_TOKEN:
-    st.error("API keys for Gemini and Replicate are not configured. Please set them in .streamlit/secrets.toml or as environment variables.")
+if not GEMINI_API_KEY:
+    st.error("API key for Gemini is not configured. Please set it in .streamlit/secrets.toml or as environment variable.")
     st.stop()
 
 
@@ -112,7 +109,8 @@ singapore_friend_male = """
 """
 
 persona_identity_images = {
-    "jayden_lim": "https://i.ibb.co/8Ly5vmWZ/german-man-friend.jpg"
+    "jayden_happy": "https://i.ibb.co/8Ly5vmWZ/german-man-friend.jpg",
+    "jayden_sad" : "https://ibb.co/G4FVw6WW"
 }
 
 
@@ -648,65 +646,58 @@ def extract_context(prompt):
         return {"emotion": "neutral", "location": "unknown", "action": "idle"}
     
 def build_selfie_prompt(persona_name, context):
-    """Builds the prompt for the image generation API."""
+    """Builds a rich, expressive prompt for the image generation API."""
+
+    def clean_context(value, fallback):
+        if not value or "unclear" in value.lower() or "/" in value:
+            return fallback
+        return value.strip().lower()
+
+    # Clean values from context or use safe defaults
+    emotion = clean_context(context.get("emotion"), "calm and natural")
+    action = clean_context(context.get("action"), "looking at the camera")
+    location = clean_context(context.get("location"), "a familiar background")
+
     return (
-        f"{persona_name}, {context.get('emotion', 'neutral')} expression, "
-        f"{context.get('action', 'idle')}, in {context.get('location', 'a room')}, "
-        "one person, realistic lighting, portrait, close-up"
+        f"A close-up portrait of {persona_name} with a {emotion} expression, "
+        f"{action}, "
+        f"at {location}. "
+        "Ultra-detailed, realistic lighting, DSLR-quality, natural skin tone, face-preserving, cinematic photo style."
     )
 
-def generate_selfie(base_image_url, selfie_prompt):
-    """Generates a selfie using the Replicate API and polls for the result."""
-    replicate_api_url = "https://api.replicate.com/v1/predictions"
-    headers = {
-        "Authorization": f"Token {REPLICATE_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "version": "32402fb5c493d883aa6cf098ce3e4cc80f1fe6ae7f632a8dbde01a3d161",
-        "input": {
-            "prompt": selfie_prompt,
-            "negative_prompt": "NSFW, nudity, painting, drawing, illustration, glitch, deformed, mutated, cross-eyed, ugly, disfigured",
-            "image": base_image_url,
-            "width": 768,
-            "height": 768,
-            "steps": 25,
-            "cfg": 7,
-            "denoise": 1.0,
-            "scheduler": "karras",
-            "sampler_name": "dpmpp_2m",
-            "instantid_weight": 0.8,
-            "ipadapter_weight": 0.8,
-        }
-    }
-    
-    try:
-        response = requests.post(replicate_api_url, json=payload, headers=headers, timeout=180)
-        response.raise_for_status()
-        prediction = response.json()
-        get_url = prediction["urls"]["get"]
 
-        with st.spinner("Jayden is taking a selfie... 🤳"):
-            for _ in range(180): # Max 3 minutes
-                time.sleep(1)
-                get_response = requests.get(get_url, headers=headers)
-                get_response.raise_for_status()
-                status_data = get_response.json()
-                if status_data["status"] == "succeeded":
-                    if status_data.get("output"):
-                        return status_data["output"][0]
-                    else:
-                        st.error("Image generation succeeded but returned no output.")
-                        return None
-                elif status_data["status"] in ["failed", "canceled"]:
-                    st.error(f"Image generation failed: {status_data.get('error')}")
-                    return None
-            st.warning("Image generation timed out.")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"Replicate API call failed: {e}")
-        return None
+def generate_selfie_with_faceid(base_image_url, selfie_prompt):
+    client = Client("multimodalart/Ip-Adapter-FaceID")
+    with st.spinner("Generating selfie..."):
+        try:
+            result = client.predict(
+                images=[handle_file(base_image_url)],
+                prompt=selfie_prompt,
+                negative_prompt="NSFW, low quality, blur, deformed",
+                preserve_face_structure=True,
+                face_strength=1.3,
+                likeness_strength=1.0,
+                nfaa_negative_prompt="naked, bikini, skimpy, scanty, bare skin, lingerie, swimsuit, exposed, see-through",
+                api_name="/generate_image"
+            )
+            st.write("🔍 Raw Result:", result)
+            if result and isinstance(result, list):
+                first = result[0]
+                if isinstance(first, dict) and "image" in first:
+                    return first["image"]
+                else:
+                    st.warning("⚠️ The result didn't contain an 'image' key.")
+            else:
+                st.warning("⚠️ Unexpected result format.")
+        except Exception as e:
+            st.error(f"❌ FaceID generation failed: {e}")
+    return None
+
+def map_emotion_to_persona_key(emotion_text):
+    """Maps emotion to persona_identity_images key."""
+    sad_emotions = ["sad", "depressed", "angry", "worried", "crying", "frustrated", "serious", "upset", "anxious"]
+    emotion_text = emotion_text.lower()
+    return "jayden_sad" if any(word in emotion_text for word in sad_emotions) else "jayden_happy"
 
 def generate_persona_selfie_button_click(persona_key, bot_response):
     """Orchestrates the selfie generation process when button is clicked."""
@@ -721,8 +712,14 @@ def generate_persona_selfie_button_click(persona_key, bot_response):
         
     prompt = build_selfie_prompt(persona_key.replace("_", " ").title(), context)
     st.sidebar.info(f"**Image Prompt:**\n{prompt}")
+    
+    emotion_text = context.get("emotion", "")
+    persona_key = map_emotion_to_persona_key(emotion_text)
+    base_img = persona_identity_images.get(persona_key, persona_identity_images["jayden_happy"])
+    st.session_state.persona_key = persona_key
 
-    image_url = generate_selfie(base_img, prompt)
+
+    image_url = generate_selfie_with_faceid(base_img, prompt)
     if image_url:
         st.session_state.selfie_url = image_url
         st.session_state.selfie_message_content = bot_response
@@ -1008,8 +1005,11 @@ with col2:
     st.header("Jayden's Selfie")
     selfie_placeholder = st.empty()
     
+    persona_key = st.session_state.get("persona_key", "jayden_happy")
+    
     if "selfie_url" not in st.session_state:
-        st.session_state.selfie_url = persona_identity_images["jayden_lim"]
+        st.session_state.selfie_url = persona_identity_images.get(persona_key, persona_identity_images["jayden_happy"])
+
     if "selfie_message_content" not in st.session_state:
         st.session_state.selfie_message_content = "Jayden's default profile pic."
 
@@ -1018,13 +1018,13 @@ with col2:
     if st.button("Generate New Selfie", disabled=st.session_state.bot_is_typing):
         if st.session_state.messages:
             last_bot_message = next((m["content"] for m in reversed(st.session_state.messages) if m["role"] == "assistant"), "Jayden is chill.")
-            generate_persona_selfie_button_click("jayden_lim", last_bot_message)
+            generate_persona_selfie_button_click(persona_key, last_bot_message)
             selfie_placeholder.image(st.session_state.selfie_url, caption="What Jayden's up to right now.")
         else:
             st.warning("Chat first to generate a selfie based on the conversation!")
     
     if st.button("Reset Selfie"):
-        st.session_state.selfie_url = persona_identity_images["jayden_lim"]
+        st.session_state.selfie_url = persona_identity_images.get(persona_key, persona_identity_images["jayden_happy"])
         st.session_state.selfie_message_content = "Jayden's default profile pic."
         selfie_placeholder.image(st.session_state.selfie_url, caption="Jayden's default profile pic.")
         st.session_state.messages.append({"role": "assistant", "content": "Back to default, steady lah!"})
@@ -1095,7 +1095,8 @@ if prompt := st.chat_input("What's up?", disabled=st.session_state.bot_is_typing
                     bot_prompt=bot_prompt
                 )
                 
-        st.session_state.bot_is_typing = False # Set to False after response is done
+        st.session_state.bot_is_typing = False
+        # Set to False after response is done
 
     
     st.session_state.messages.append({"role": "assistant", "content": cleaned_response})
@@ -1104,3 +1105,6 @@ if prompt := st.chat_input("What's up?", disabled=st.session_state.bot_is_typing
         st.session_state.previous_conversation += f"\n{st.session_state.username}: {prompt}\n{bot_name}: {cleaned_response}"
     else:
         st.session_state.previous_conversation = "" # Clear general history when in activity
+        
+# AIzaSyDFO8_NWA5nV08fpZVOjZrdSUN8StjGnbk9
+# $env:GEMINI_API_KEY = "your_gemini_api_key_here"
