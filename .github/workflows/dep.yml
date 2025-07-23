@@ -1,1 +1,42 @@
+name: Deploy FastAPI to Cloud Run
 
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: cvoapi
+  REGION: asia-southeast1
+  SERVICE: fastapi-chatbot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_CREDENTIALS }}
+          export_default_credentials: true
+
+      - name: Deploy to Cloud Run (Buildpacks, no Dockerfile)
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --source . \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} \
+            --memory 16Gi \
+            --cpu 4 \
+            --timeout 3600
+
+      - name: Print deployed URL
+        run: |
+          URL=$(gcloud run services describe ${{ env.SERVICE }} --region ${{ env.REGION }} --format='value(status.url)')
+          echo "Deployed to: $URL"
