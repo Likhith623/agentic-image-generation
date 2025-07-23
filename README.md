@@ -1,4 +1,4 @@
-# FastAPI Chatbot Server
+# FastAPI Server
 
 ## Requirements (requirements.txt)
 
