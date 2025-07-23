@@ -1,211 +1,340 @@
-# GamifyNovi
-Deployed for testing at : https://cvo-app-selfie.streamlit.app/
+# FastAPI Chatbot Server
 
+## Requirements (requirements.txt)
 
-# Gamification of NoviAI : Jayden Lim Persona Chat Interface
-
-This is a Streamlit-based interactive application that facilitates multi-turn conversations with a fictional persona named **Jayden Lim**. The app supports both free-form conversation and 36 structured activities. Jayden's tone, slang, and behavior are governed by a strict persona specification embedded at runtime.
-
----
-
-## Table of Contents
-
-* [Overview](#overview)
-* [Architecture](#architecture)
-* [File Structure](#file-structure)
-* [Persona Engine](#persona-engine)
-* [Core Features](#core-features)
-* [Dependencies](#dependencies)
-* [Setup Instructions](#setup-instructions)
-* [Secrets and Configuration](#secrets-and-configuration)
-* [Usage](#usage)
-* [CrewAI Activity System](#crewai-activity-system)
-* [Context Extraction](#context-extraction)
-* [Selfie Generation](#selfie-generation)
-
----
-
-## Overview
-
-Jayden responds with short, slang-rich, emotionally aware messages across two interaction types:
-
-1. **Free-form chat**, which is powered by the Gemini 2.0 Flash model using LiteLLM with response streaming. Messages are rendered incrementally for a more natural experience.
-2. **Structured activities**, launched through a categorized set of buttons grouped under an expandable dropdown. Each activity modifies Jayden's behavior for multi-turn interactions.
-3. **Selfie generation**, which can be manually triggered, uses Jayden's latest message to generate a face-retaining image based on detected emotion, location, and action.
-
----
-
-## Architecture
-
-### Components
-
-* **Streamlit**: Web interface and session state
-* **LiteLLM**: Connects to Gemini 2.0 Flash for message generation
-* **CrewAI**: Drives multi-turn structured activities
-* **Replicate API**: Generates images using instant-id-ipadapter-plus-face
-* **Context Extractor**: Parses emotion, location, and action from bot replies
-* **Selfie Generation (manual trigger)**: Accessible via a sidebar command, uses extracted context and reference identity to render updated visual output
-
----
-
-## File Structure
-
-```plaintext
-CVotemp/
-│
-├── app2.py                 # Main application file
-├── requirements.txt        # Python dependency list
-│
-└── .streamlit/
-    └── secrets.toml        # API keys for Gemini and Replicate
+```txt
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+requests==2.31.0
+python-dotenv==1.0.0
+gradio-client==0.7.1
+litellm==1.17.9
+Pillow==10.1.0
+sqlite3
 ```
 
----
+## Environment Setup
 
-## Persona Engine
+Create a `.env` file in your project root:
 
-Jayden Lim is a fictional 22-year-old Singaporean male with a defined backstory and personality rules. His voice includes Singlish, Gen Z slang, cultural references, and meme awareness. The full persona is injected as a prompt at initialization and used across both default and activity-based interactions.
-
-Constraints include:
-
-* Max 1–2 sentences per message
-* Avoids formality
-* Responds with emotional awareness and cultural specificity
-* Never breaks character or overexplains
-
----
-
-## Core Features
-
-* Free-form chat powered by Gemini 2.0 Flash with streamed token generation
-* 36 structured activities, each with a goal and output style
-* Stateful memory using Streamlit’s session\_state
-* Activity-specific logic built via CrewAI tasks and agents
-* On-demand image generation tied to message content
-* Persona consistency enforced across all interaction types
-
----
-
-## Dependencies
-
-```text
-streamlit
-requests
-crewai
-litellm
-python-dotenv
-google-generativeai
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-Install them with:
+## Installation & Running
 
 ```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Run the server
+python main.py
+# or
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
----
+## API Endpoints
 
-## Setup Instructions
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/<your-org>/CVotemp.git
-cd CVotemp
+### 1. Health Check
+```http
+GET /
 ```
 
-### 2. Configure secrets
-
-Create `.streamlit/secrets.toml`:
-
-```toml
-GEMINI_API_KEY = "your_google_gemini_key"
-REPLICATE_API_TOKEN = "your_replicate_token"
+**Response:**
+```json
+{
+  "message": "AI Chatbot API is running",
+  "status": "healthy"
+}
 ```
 
-Or set as environment variables:
-
-```bash
-export GEMINI_API_KEY=your_google_gemini_key
-export REAPI_TOKEN=your_replicate_token
+### 2. Get Available Bots
+```http
+GET /bots
 ```
 
----
-
-## Usage
-
-Launch the app with:
-
-```bash
-streamlit run app2.py
+**Response:**
+```json
+{
+  "bots": ["jayden_lim"],
+  "details": {
+    "jayden_lim": {
+      "name": "Jayden Lim",
+      "origin": "singapore"
+    }
+  }
+}
 ```
 
-On startup:
+### 3. Chat with Bot (Main Endpoint)
+```http
+POST /chat
+```
 
-* Jayden sends a default opening message
-* A dropdown (Streamlit expander) reveals multiple button grids grouped by interaction type and XP level
-* Clicking a button starts an activity
-* Typing "exit", "stop", or "end" resets activity state
-* Session memory persists chat history, activity flags, and selfie state
+**Request Body:**
+```json
+{
+  "bot_id": "jayden_lim",
+  "email": "user@example.com",
+  "message": "Hey, how are you doing?",
+  "previous_conversation": "",
+  "username": "user",
+  "generate_selfie": true
+}
+```
 
-All normal chat input outside activities also uses Gemini 2.0 Flash with streamed response rendering.
+**Response:**
+```json
+{
+  "bot_response": "Yo bro! I'm doing great lah, just chilling at home. How about you?",
+  "emotion_context": {
+    "emotion": "happy",
+    "location": "home",
+    "action": "relaxing"
+  },
+  "selfie_image": "base64_encoded_image_string",
+  "selfie_url": null,
+  "conversation_history": "user: Hey, how are you doing?\nJayden Lim: Yo bro! I'm doing great lah...",
+  "status": "success"
+}
+```
 
----
+### 4. Generate Selfie Only
+```http
+POST /generate-selfie?bot_id=jayden_lim&message=I'm feeling sad today&email=user@example.com
+```
 
-## CrewAI Activity System
+**Response:**
+```json
+{
+  "selfie_image": "base64_encoded_image_string",
+  "emotion_context": {
+    "emotion": "sad",
+    "location": "room",
+    "action": "sitting"
+  },
+  "status": "success"
+}
+```
 
-Activities are powered by CrewAI’s `Agent` and `Task` system. Each button in the activity panel launches a different conversational template.
+### 5. Detect Emotion Only
+```http
+POST /detect-emotion?message=I'm really excited about this project!
+```
 
-Each task is defined with:
+**Response:**
+```json
+{
+  "emotion_context": {
+    "emotion": "excited",
+    "location": "unknown",
+    "action": "talking"
+  },
+  "status": "success"
+}
+```
 
-* A static description string
-* The user's most recent input
-* Optionally, the last 8 turns of activity-specific conversation (used as historical context, not full transcript)
-* An expected output pattern designed to match Jayden’s persona
+## Frontend Integration Examples
 
-Activities include light (e.g., nickname game), medium (e.g., scenario shuffle), and deep (e.g., unsent messages) tiers.
+### JavaScript/Node.js
+```javascript
+// Chat with bot
+const chatResponse = await fetch('http://localhost:8000/chat', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    bot_id: 'jayden_lim',
+    email: 'user@example.com',
+    message: 'Hello there!',
+    previous_conversation: '',
+    username: 'user',
+    generate_selfie: true
+  })
+});
 
-All activities enforce:
+const data = await chatResponse.json();
+console.log('Bot response:', data.bot_response);
 
-* Persona tone
-* Continuation logic (always prompt for the next input unless explicitly ended)
-* **Note**: Streaming is currently not active for activity-based messages. It is planned and will be added soon.
+// Display selfie image if available
+if (data.selfie_image) {
+  const img = document.createElement('img');
+  img.src = `data:image/png;base64,${data.selfie_image}`;
+  document.body.appendChild(img);
+}
+```
 
----
+### React Example
+```jsx
+import React, { useState } from 'react';
 
-## Context Extraction
+function ChatBot() {
+  const [message, setMessage] = useState('');
+  const [conversation, setConversation] = useState('');
+  const [botResponse, setBotResponse] = useState('');
+  const [selfieImage, setSelfieImage] = useState('');
 
-Context is parsed from the most recent assistant reply using a second Gemini call. It returns:
+  const sendMessage = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bot_id: 'jayden_lim',
+          email: 'user@example.com',
+          message: message,
+          previous_conversation: conversation,
+          username: 'user',
+          generate_selfie: true
+        })
+      });
 
-* `emotion`: A short label like "happy" or "confused"
-* `location`: Where the response appears to be set
-* `action`: What Jayden is supposedly doing
+      const data = await response.json();
+      setBotResponse(data.bot_response);
+      setConversation(data.conversation_history);
+      
+      if (data.selfie_image) {
+        setSelfieImage(`data:image/png;base64,${data.selfie_image}`);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
 
-The result is extracted as a raw JSON block. A regex is used to isolate the valid object, and it is parsed directly. Failure falls back to safe defaults.
+  return (
+    <div>
+      <input 
+        type="text" 
+        value={message} 
+        onChange={(e) => setMessage(e.target.value)} 
+        placeholder="Type your message..."
+      />
+      <button onClick={sendMessage}>Send</button>
+      
+      {botResponse && <div>Bot: {botResponse}</div>}
+      {selfieImage && <img src={selfieImage} alt="Bot selfie" />}
+    </div>
+  );
+}
 
-This metadata is used only during image generation.
+export default ChatBot;
+```
 
----
+### Python Client Example
+```python
+import requests
+import base64
+from PIL import Image
+import io
 
-## Selfie Generation
+def chat_with_bot(message, previous_conversation=""):
+    url = "http://localhost:8000/chat"
+    payload = {
+        "bot_id": "jayden_lim",
+        "email": "user@example.com",
+        "message": message,
+        "previous_conversation": previous_conversation,
+        "username": "user",
+        "generate_selfie": True
+    }
+    
+    response = requests.post(url, json=payload)
+    data = response.json()
+    
+    print(f"Bot: {data['bot_response']}")
+    
+    # Save selfie if available
+    if data.get('selfie_image'):
+        image_data = base64.b64decode(data['selfie_image'])
+        image = Image.open(io.BytesIO(image_data))
+        image.save('bot_selfie.png')
+        print("Selfie saved as bot_selfie.png")
+    
+    return data['conversation_history']
 
-Selfie generation is manually triggered through the UI. The process is:
+# Usage
+conversation = chat_with_bot("Hey, how's it going?")
+conversation = chat_with_bot("Tell me about Singapore!", conversation)
+```
 
-1. User clicks a sidebar button to generate a new selfie
-2. The most recent assistant message is analyzed for emotion, location, and action
-3. A prompt string is constructed. Example:
+## Error Handling
 
-   ```
-   Jayden Lim, happy expression, texting, in MRT station, one person, realistic lighting, portrait, close-up
-   ```
-4. This is passed to **Replicate’s instant-id-ipadapter-plus-face API**
-   (average cost per call: \~0.063 USD)
-5. The API returns a payload containing a `"web"` key with a URL
-6. That URL is extracted and the image is rendered in the chat interface
+All endpoints return consistent error responses:
 
-This API retains facial similarity to a static identity image while updating expression, pose, and background based on context.
+```json
+{
+  "error": "Error description",
+  "status": "error"
+}
+```
 
-This project involved extensive research into multimodal emotion representation to address the challenge of accurately visualizing negative emotions (e.g., sadness, anger) in a non-exaggerated and human-aligned manner. After surveying relevant papers and comparing multiple generative models, Hugging Face’s Modal AI was selected for its balance of control and visual consistency. The codebase was further modified to improve prompt compatibility and ensure stable image generation based on dynamic conversational context. These improvements made the model deployable for use in emotion-aware chatbot systems, with a focus on interpretability and user trust.
-Changed the modal art generator, applied payment pipelin, now takes up negative emotions.
+Common HTTP status codes:
+- `200`: Success
+- `400`: Bad Request (invalid bot_id, missing parameters)
+- `500`: Internal Server Error (API failures, processing errors)
 
--Aditya Namdeo
+## Production Deployment
+
+### Docker Deployment
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+### Environment Variables for Production
+```env
+GEMINI_API_KEY=your_production_key
+CORS_ORIGINS=https://yourdomain.com,https://api.yourdomain.com
+LOG_LEVEL=INFO
+```
+
+### Security Considerations
+
+1. **CORS Configuration**: Update `allow_origins` in production
+2. **API Key Security**: Use secure secret management
+3. **Rate Limiting**: Implement rate limiting for production
+4. **Input Validation**: All inputs are validated via Pydantic models
+5. **Error Logging**: Comprehensive logging for debugging
+
+### Performance Optimization
+
+1. **Caching**: Consider caching emotion detection results
+2. **Async Operations**: All I/O operations are async
+3. **Connection Pooling**: Gradio client is initialized once and reused
+4. **Image Compression**: Consider compressing base64 images for faster response times
+
+## Key Features Preserved
+
+✅ **All original Streamlit logic preserved**
+✅ **Emotion detection from conversation**
+✅ **Dynamic selfie generation based on emotion**
+✅ **Conversation history management**
+✅ **Multiple persona support**
+✅ **Error handling and fallbacks**
+✅ **Image processing and base64 encoding**
+✅ **Gemini API integration**
+✅ **FaceID selfie generation**
+
+## Scalability Features
+
+- **Async/await support** for concurrent requests
+- **Pydantic models** for request/response validation
+- **Modular service architecture** for easy maintenance
+- **Comprehensive logging** for monitoring
+- **Health check endpoints** for load balancers
+- **CORS support** for web frontend integration
