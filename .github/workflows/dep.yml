@@ -29,7 +29,10 @@ jobs:
           service_account_key: ${{ secrets.GCP_CREDENTIALS }}
           export_default_credentials: true
 
-
+      - name: Debug gcloud auth
+        run: |
+          gcloud auth list
+          gcloud config list account
 
       - name: Deploy to Cloud Run (Buildpacks, no Dockerfile)
         run: |
