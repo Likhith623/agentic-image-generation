@@ -645,7 +645,28 @@ def extract_context(prompt):
         st.error(f"JSON parse error in context extraction: {e}\nRaw response: {json_str}")
         return {"emotion": "neutral", "location": "unknown", "action": "idle"}
     
+
 def build_selfie_prompt(persona_name, context):
+    """Builds a full JSON-style prompt dictionary for FaceID generation."""
+    emotion = context.get("emotion", "neutral")
+    action = context.get("action", "idle")
+    location = context.get("location", "a room")
+
+    prompt_text = (
+        f"A close-up portrait of {persona_name} with a {emotion} expression, "
+        f"{action}, at {location}. Ultra-detailed, DSLR-quality, realistic lighting, natural skin tone, cinematic photo style."
+    )
+
+    return {
+        "prompt": prompt_text,
+        "negative_prompt": "NSFW, blur, cartoon, distorted, deformed",
+        "preserve_face_structure": True,
+        "face_strength": 1.2,
+        "likeness_strength": 1.0,
+        "nfaa_negative_prompt": "naked, bikini, revealing clothes"
+    }
+
+
     """Builds a rich, expressive prompt for the image generation API."""
 
     def clean_context(value, fallback):
@@ -666,7 +687,27 @@ def build_selfie_prompt(persona_name, context):
     )
 
 
+
+from gradio_client import Client, handle_file
+
 def generate_selfie_with_faceid(base_image_url, selfie_prompt):
+    client = Client("multimodalart/Ip-Adapter-FaceID")
+    try:
+        result = client.predict(
+            images=[handle_file(base_image_url)],
+            prompt=selfie_prompt,
+            negative_prompt="NSFW, blur, cartoon, distorted, deformed",
+            preserve_face_structure=True,
+            face_strength=1.2,
+            likeness_strength=1.0,
+            nfaa_negative_prompt="naked, bikini, revealing clothes",
+            api_name="/generate_image"
+        )
+        if result and isinstance(result, list) and isinstance(result[0], dict):
+            return result[0]["image"]
+    except Exception as e:
+        print("Error:", e)
+        return None
     client = Client("multimodalart/Ip-Adapter-FaceID")
     with st.spinner("Generating selfie..."):
         try:
